@@ -26,7 +26,15 @@ Elle fonctionne **hors connexion** une fois installée. Aucune donnée n’est e
   commentaires, cadre d’appréciation). PDF individuel possible depuis la fiche d’un élève.
 - **Import des élèves** depuis un fichier Excel (un onglet par classe, colonnes NOM et Prénom) —
   seuls le nom et le prénom sont conservés.
-- **Sauvegarde / restauration** (fichier `.json`) pour ne rien perdre et transférer les données d’un appareil à l’autre.
+- **Comportement face au travail** : Rythme, Application, Persévérance, Soin, Autonomie, Efficacité, Initiative
+  (notés sur 10). Évalué comme une compétence (seul ou avec d’autres), affiché à part (violet, icône étoile)
+  et **exclu de la moyenne des compétences techniques**.
+- **Code à 6 chiffres** demandé à chaque ouverture (et après 5 min en arrière-plan). Les données sont **chiffrées**
+  (AES-256) avec ce code, sur l’appareil comme sur Google Drive.
+- **Synchronisation Google Drive** : un fichier unique `EvalQ-donnees.json` dans votre Drive, partagé par tous vos
+  appareils (PC, tablette, téléphone). Travail possible hors connexion ; fusion automatique des modifications
+  faites sur plusieurs appareils.
+- **Sauvegarde / restauration** manuelle (fichier `.json`).
 
 ## Mise en ligne (GitHub Pages)
 
@@ -48,12 +56,27 @@ Elle fonctionne **hors connexion** une fois installée. Aucune donnée n’est e
 2. Vérifier les dates des périodes dans *Réglages*.
 3. Créer une évaluation, cocher compétences / critères / élèves, puis saisir les notes.
 
+## Synchronisation Google Drive (réglage unique)
+
+1. [console.cloud.google.com](https://console.cloud.google.com/) → créer un projet « EvalQ ».
+2. *API et services → Bibliothèque* → activer **Google Drive API**.
+3. *Écran de consentement OAuth* (Google Auth Platform) → type **Externe**, nom « EvalQ » ;
+   dans *Audience*, ajouter votre adresse Gmail comme **utilisateur test**.
+4. *Clients → Créer un client* → **Application Web** → *Origines JavaScript autorisées* :
+   `https://ttfrisno-design.github.io`.
+5. Copier l’**ID client** (`….apps.googleusercontent.com`) et le coller dans *Réglages → Synchronisation*
+   (ou le renseigner dans `js/config.js` pour qu’il soit prérempli sur tous les appareils).
+6. Sur chaque appareil : *Réglages → Connecter Google Drive*, même compte Google, même code.
+
+L’application n’a accès qu’aux fichiers qu’elle a elle-même créés dans votre Drive (autorisation `drive.file`).
+La connexion Google dure une heure : ensuite, l’icône nuage devient orange ; la toucher reconnecte.
+
 ## Données personnelles
 
-Les données (noms des élèves, notes) sont stockées **uniquement dans le navigateur de l’appareil** (localStorage)
-et ne sont jamais envoyées sur un serveur. Aucune liste d’élèves n’est incluse dans ce dépôt.
-Pensez à **exporter une sauvegarde** régulièrement (*Réglages → Sauvegarde*) : effacer les données du navigateur
-ou désinstaller l’application supprime les notes.
+Les données (noms des élèves, notes) sont stockées **chiffrées** avec votre code, dans le navigateur de chaque
+appareil et, si activé, dans **votre** Google Drive. Aucune liste d’élèves n’est incluse dans ce dépôt.
+**Code oublié = données illisibles** : notez-le en lieu sûr. Une sauvegarde manuelle (*Réglages → Sauvegarde*)
+produit un fichier non chiffré, à conserver en lieu sûr.
 
 ## Technique
 

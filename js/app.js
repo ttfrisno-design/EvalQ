@@ -18,6 +18,7 @@ import {
   evalScore,
   evalsFor,
   compAverage,
+  critAverage,
   globalAverage,
   classCompAverage,
   evalCompletion,
@@ -30,7 +31,21 @@ import {
   LEVELS,
   fmt,
   requestPersistence,
+  techCompetences,
+  behaviorComp,
+  behaviorAverage,
+  evalTechScore,
+  isSetUp,
+  setupCode,
+  unlock,
+  checkCode,
+  changeCode,
+  wipeDevice,
+  flush,
+  onSave,
 } from './store.js';
+import { openPin, createPin } from './lock.js';
+import * as sync from './sync.js';
 import { esc, $, $$, dateFR, toast, pickFile, shareOrDownload, ICONS, typeBadge } from './util.js';
 import * as charts from './charts.js';
 import { parseStudentFile, applyImport } from './import.js';
@@ -81,6 +96,7 @@ function render() {
     const m = hash.match(re);
     if (m) {
       fn(m);
+      renderSyncBadge();
       return;
     }
   }
@@ -215,8 +231,12 @@ function evalCard(e) {
       <div class="muted small">${dateFR(e.date, { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
         · ${e.students.length} élève(s) · ${nCrit} critère(s)</div>
       <div class="row gap-s wrap">${typeBadge(e.type, e.place)}${comps
-        .sort((a, b) => parseInt(a.slice(1)) - parseInt(b.slice(1)))
-        .map((c) => `<span class="tag">${esc(c)}</span>`)
+        .sort((a, b) => (parseInt(a.slice(1)) || 999) - (parseInt(b.slice(1)) || 999))
+        .map((c) =>
+          compById(c)?.behavior
+            ? `<span class="tag behavior">${ICONS.behavior}Comportement</span>`
+            : `<span class="tag">${esc(c)}</span>`,
+        )
         .join('')}</div>
       <div class="progress"><span style="width:${pct}%"></span></div>
     </div>
@@ -303,7 +323,8 @@ function viewEvalForm(ev) {
           .map((ep) => {
             const list = comps.filter((c) => c.epreuve === ep.id);
             if (!list.length) return '';
-            return `<div class="epreuve"><h3>${esc(ep.label)}</h3>${list.map(compBlock).join('')}</div>`;
+            const beh = list.some((c) => c.behavior);
+            return `<div class="epreuve ${beh ? 'behavior' : ''}"><h3>${beh ? ICONS.behavior + ' ' : ''}${esc(ep.label)}</h3>${list.map(compBlock).join('')}</div>`;
           })
           .join('')}
         ${other.length ? `<div class="epreuve"><h3>Autres compétences</h3>${other.map(compBlock).join('')}</div>` : ''}
@@ -492,8 +513,8 @@ function saisieEleve(root, ev, students, comps) {
         ${comps
           .map((c) => {
             const crits = c.criteres.filter((k) => ev.selection[c.id].includes(k.id));
-            return `<div class="comp-block">
-              <div class="comp-block-head"><div><b>${esc(c.id)}</b> ${esc(c.label)}</div>
+            return `<div class="comp-block ${c.behavior ? 'behavior' : ''}">
+              <div class="comp-block-head"><div>${c.behavior ? ICONS.behavior + ' ' : `<b>${esc(c.id)}</b> `}${esc(c.label)}</div>
                 <span data-compavg="${esc(c.id)}">${pill(compScore(ev, s.id, c.id))}</span></div>
               ${crits
                 .map((k) => {
@@ -599,7 +620,7 @@ function saisieGrid(root, ev, students, comps) {
     <div class="table-wrap"><table class="grid-table">
       <thead>
         <tr><th rowspan="2" class="sticky-col">Élève</th><th rowspan="2" title="Absent">Abs.</th>
-          ${cols.map(({ c, crits }) => `<th colspan="${crits.length + 1}" class="comp-th" title="${esc(c.label)}">${esc(c.id)}</th>`).join('')}
+          ${cols.map(({ c, crits }) => `<th colspan="${crits.length + 1}" class="comp-th ${c.behavior ? 'th-behavior' : ''}" title="${esc(c.label)}">${c.behavior ? 'Comport.' : esc(c.id)}</th>`).join('')}
           <th rowspan="2">Moy.</th></tr>
         <tr>${cols
           .map(
@@ -715,6 +736,7 @@ function viewStudents() {
             <div class="row gap-s">
               <span class="mini ecole" title="École">${ICONS.ecole}${pill(globalAverage(s.id, ec))}</span>
               <span class="mini entreprise" title="Entreprise">${ICONS.entreprise}${pill(globalAverage(s.id, en))}</span>
+              <span class="mini behavior" title="Comportement face au travail">${ICONS.behavior}${pill(behaviorAverage(s.id, all))}</span>
               ${pill(globalAverage(s.id, all), 'big')}
             </div></a>`;
         })
@@ -734,7 +756,8 @@ function viewStudents() {
 function legendHTML() {
   return (
     LEVELS.map((l) => `<span class="legend-item"><span class="pill lv-${l.key}">${l.min === 0 ? '<4' : '≥' + l.min}</span>${l.label}</span>`).join('') +
-    `<span class="legend-item ecole">${ICONS.ecole}École</span><span class="legend-item entreprise">${ICONS.entreprise}Entreprise</span>`
+    `<span class="legend-item ecole">${ICONS.ecole}École</span><span class="legend-item entreprise">${ICONS.entreprise}Entreprise</span>` +
+    `<span class="legend-item behavior">${ICONS.behavior}Comportement</span>`
   );
 }
 
@@ -748,7 +771,8 @@ function viewStudent(s) {
   const ec = byType(all, 'ecole');
   const en = byType(all, 'entreprise');
   const prevAll = prev ? evalsFor({ sid: s.id, start: prev.start, end: prev.end }) : [];
-  const comps = sortedCompetences();
+  const comps = techCompetences();
+  const beh = behaviorComp();
   const g = globalAverage(s.id, all);
   const delta = (a, b) => {
     if (!isNum(a) || !isNum(b)) return '';
@@ -772,6 +796,7 @@ function viewStudent(s) {
       <div class="tile"><span class="muted small">Moyenne générale</span>${pill(g, 'xl')}${prev ? delta(g, globalAverage(s.id, prevAll)) : ''}</div>
       <div class="tile ecole"><span class="muted small">${ICONS.ecole} École</span>${pill(globalAverage(s.id, ec), 'xl')}<span class="muted small">${ec.length} éval.</span></div>
       <div class="tile entreprise"><span class="muted small">${ICONS.entreprise} Entreprise</span>${pill(globalAverage(s.id, en), 'xl')}<span class="muted small">${en.length} éval.</span></div>
+      ${beh ? `<div class="tile behavior"><span class="muted small">${ICONS.behavior} Comportement</span>${pill(behaviorAverage(s.id, all), 'xl')}${prev ? delta(behaviorAverage(s.id, all), behaviorAverage(s.id, prevAll)) : ''}</div>` : ''}
     </div>
 
     <section class="card">
@@ -791,10 +816,35 @@ function viewStudent(s) {
       </table></div>
     </section>
 
+    ${
+      beh
+        ? `<section class="card">
+      <h2 class="th-behavior">${ICONS.behavior} ${esc(beh.label)} – ${esc(r.name)}</h2>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Critère</th><th class="th-ecole">${ICONS.ecole}École</th><th class="th-entreprise">${ICONS.entreprise}Entr.</th><th>Moyenne</th>${prev ? `<th>vs ${esc(prev.name)}</th>` : ''}</tr></thead>
+        <tbody>${beh.criteres
+          .map((k) => {
+            const a = critAverage(s.id, k.id, all);
+            return `<tr data-chartcomp="${esc(beh.id)}" class="clickable"><td>${esc(k.label)}</td>
+              <td class="c">${pill(critAverage(s.id, k.id, ec))}</td>
+              <td class="c">${pill(critAverage(s.id, k.id, en))}</td>
+              <td class="c">${pill(a, 'big')}</td>
+              ${prev ? `<td class="c">${delta(a, critAverage(s.id, k.id, prevAll))}</td>` : ''}</tr>`;
+          })
+          .join('')}
+          <tr class="total clickable" data-chartcomp="${esc(beh.id)}"><td>Moyenne comportement</td>
+            <td class="c">${pill(behaviorAverage(s.id, ec))}</td><td class="c">${pill(behaviorAverage(s.id, en))}</td>
+            <td class="c">${pill(behaviorAverage(s.id, all), 'big')}</td>${prev ? `<td class="c">${delta(behaviorAverage(s.id, all), behaviorAverage(s.id, prevAll))}</td>` : ''}</tr>
+        </tbody></table></div>
+    </section>`
+        : ''
+    }
+
     <section class="card stack">
       <div class="row between wrap gap-s"><h2>Évolution</h2><div class="chips">${scopeOpts}</div></div>
       <select id="compSel" class="select">
-        <option value="ALL">Moyenne de toutes les compétences</option>
+        <option value="ALL">Moyenne des compétences techniques</option>
+        ${beh ? `<option value="${esc(beh.id)}">${esc(beh.label)}</option>` : ''}
         ${comps.map((c) => `<option value="${esc(c.id)}" ${ui.chartComp === c.id ? 'selected' : ''}>${esc(c.id)} – ${esc(c.label)}</option>`).join('')}
       </select>
       <div class="chart-box"><canvas id="evoChart"></canvas></div>
@@ -867,7 +917,7 @@ function drawStudentEvolution(s) {
   const scope = rangeById(ui.chartScope) || rangeById('YEAR');
   const evs = evalsFor({ sid: s.id, start: scope.start, end: scope.end });
   const comp = ui.chartComp;
-  const score = (e) => (comp === 'ALL' ? evalScore(e, s.id) : compScore(e, s.id, comp));
+  const score = (e) => (comp === 'ALL' ? evalTechScore(e, s.id) : compScore(e, s.id, comp));
   const points = evs
     .map((e) => ({ date: e.date, value: score(e), type: e.type, title: e.title }))
     .filter((p) => isNum(p.value));
@@ -905,7 +955,8 @@ function viewBilans() {
   const all = evalsFor({ classId: cid, start: r.start, end: r.end });
   const list = byType(all, ui.bilanType);
   const students = studentsOf(cid);
-  const comps = sortedCompetences();
+  const comps = techCompetences();
+  const beh = behaviorComp();
   const nE = all.filter((e) => e.type === 'ecole').length;
   const nX = all.length - nE;
 
@@ -941,18 +992,20 @@ function viewBilans() {
     <div class="legend-row">${legendHTML()}</div>
     <section class="card">
       <div class="table-wrap"><table class="table matrix">
-        <thead><tr><th class="sticky-col">Élève</th>${comps.map((c) => `<th title="${esc(c.label)}">${esc(c.id)}</th>`).join('')}<th>Moy.</th></tr></thead>
+        <thead><tr><th class="sticky-col">Élève</th>${comps.map((c) => `<th title="${esc(c.label)}">${esc(c.id)}</th>`).join('')}<th>Moy.</th>${beh ? `<th class="th-behavior" title="${esc(beh.label)}">${ICONS.behavior}Comport.</th>` : ''}</tr></thead>
         <tbody>
           ${students
             .map(
               (s) => `<tr><th class="sticky-col"><a href="#/eleve/${s.id}">${esc(s.nom)} ${esc(s.prenom)}</a></th>
               ${comps.map((c) => `<td class="c">${pill(compAverage(s.id, c.id, list))}</td>`).join('')}
-              <td class="c">${pill(globalAverage(s.id, list), 'big')}</td></tr>`,
+              <td class="c">${pill(globalAverage(s.id, list), 'big')}</td>
+              ${beh ? `<td class="c">${pill(behaviorAverage(s.id, list))}</td>` : ''}</tr>`,
             )
             .join('')}
           <tr class="total"><th class="sticky-col">Moyenne classe</th>
             ${comps.map((c) => `<td class="c">${pill(classCompAverage(cid, c.id, list))}</td>`).join('')}
-            <td class="c">${pill(mean(students.map((s) => globalAverage(s.id, list))), 'big')}</td></tr>
+            <td class="c">${pill(mean(students.map((s) => globalAverage(s.id, list))), 'big')}</td>
+            ${beh ? `<td class="c">${pill(classCompAverage(cid, beh.id, list))}</td>` : ''}</tr>
         </tbody></table></div>
       <p class="muted small">${comps.map((c) => `<b>${esc(c.id)}</b> ${esc(c.label)}`).join(' · ')}</p>
     </section>
@@ -960,7 +1013,8 @@ function viewBilans() {
     <section class="card stack">
       <h2>Évolution de la classe par période</h2>
       <select id="classCompSel" class="select">
-        <option value="ALL">Moyenne de toutes les compétences</option>
+        <option value="ALL">Moyenne des compétences techniques</option>
+        ${beh ? `<option value="${esc(beh.id)}" ${ui.classChartComp === beh.id ? 'selected' : ''}>${esc(beh.label)}</option>` : ''}
         ${comps.map((c) => `<option value="${esc(c.id)}" ${ui.classChartComp === c.id ? 'selected' : ''}>${esc(c.id)} – ${esc(c.label)}</option>`).join('')}
       </select>
       <div class="chart-box"><canvas id="classChart"></canvas></div>
@@ -1025,6 +1079,48 @@ function drawClassEvolution(cid) {
 // Réglages
 // ======================================================================
 
+function syncSectionHTML() {
+  const st = sync.getStatus();
+  const cid = sync.clientId();
+  const origin = location.origin;
+  const last = st.lastSync ? new Date(st.lastSync).toLocaleString('fr-FR') : 'jamais';
+  return `<section class="card stack sync-card" id="syncCard">
+    <h2>${ICONS.cloud} Synchronisation Google Drive</h2>
+    <p class="muted small">Toutes les données sont enregistrées dans un fichier unique <b>EvalQ-donnees.json</b> de votre Google Drive,
+      chiffré avec votre code. Connectez chaque appareil (PC, tablette, téléphone) avec le même compte Google :
+      les modifications sont synchronisées automatiquement ; hors connexion, elles sont envoyées au retour du réseau.</p>
+    ${
+      !cid
+        ? `<p><b>Étape unique :</b> saisissez l’identifiant client Google (voir le guide ci-dessous).</p>`
+        : sync.isEnabled()
+          ? `<p class="status-line">${esc(st.email || 'Compte Google connecté')} · <span id="syncStatus"></span></p>
+             <p class="muted small">Dernière synchronisation : ${esc(last)}</p>
+             <div class="row gap-s wrap">
+               ${st.status === 'reconnect' ? `<button class="btn primary" data-act="connect">Se reconnecter</button>` : `<button class="btn primary" data-act="syncNow">Synchroniser maintenant</button>`}
+               <button class="btn ghost danger" data-act="disconnect">Déconnecter</button>
+             </div>`
+          : `<div><button class="btn primary" data-act="connect">${ICONS.cloud}Connecter Google Drive</button></div>`
+    }
+    <details class="guide" ${cid ? '' : 'open'}><summary>Identifiant client Google ${cid ? '(configuré)' : ''}</summary>
+      <div class="row gap-s wrap" style="margin:8px 0">
+        <input id="clientId" class="grow" placeholder="xxxxxxxx.apps.googleusercontent.com" value="${esc(cid)}">
+        <button class="btn" data-act="saveClientId">Enregistrer</button>
+      </div>
+      <p class="small"><b>Créer l’identifiant (une seule fois, gratuit) :</b></p>
+      <ol class="small">
+        <li>Ouvrir <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a> et créer un projet « EvalQ ».</li>
+        <li>Menu <i>API et services → Bibliothèque</i> : activer <b>Google Drive API</b>.</li>
+        <li><i>Écran de consentement OAuth</i> (Google Auth Platform) : type <b>Externe</b>, nom « EvalQ », votre e-mail ;
+          dans <i>Audience</i>, ajouter votre adresse Gmail comme <b>utilisateur test</b>.</li>
+        <li><i>Clients → Créer un client</i> : type <b>Application Web</b> ; dans <i>Origines JavaScript autorisées</i>, ajouter
+          <code>${esc(origin)}</code>.</li>
+        <li>Copier l’<b>ID client</b> (se termine par <code>.apps.googleusercontent.com</code>) et le coller ci-dessus, sur chaque appareil
+          (ou le faire intégrer à l’application pour ne plus avoir à le saisir).</li>
+      </ol>
+    </details>
+  </section>`;
+}
+
 function viewSettings() {
   if (!ui.settingsClass || !classById(ui.settingsClass)) ui.settingsClass = state.currentClass;
   const cid = ui.settingsClass;
@@ -1043,6 +1139,19 @@ function viewSettings() {
 
   view.innerHTML = `
     <div class="page-head"><h1>Réglages</h1></div>
+
+    ${syncSectionHTML()}
+
+    <section class="card stack">
+      <h2>${ICONS.lock} Code d’accès</h2>
+      <p class="muted small">Le code à 6 chiffres est demandé à chaque ouverture (et après 5 minutes en arrière-plan).
+        Il chiffre les données sur l’appareil et sur Google Drive : utilisez le même code sur tous vos appareils.
+        Un code modifié ici sera demandé une fois sur vos autres appareils.</p>
+      <div class="row gap-s wrap">
+        <button class="btn" data-act="changeCode">Changer le code</button>
+        <button class="btn ghost" data-act="lock">${ICONS.lock}Verrouiller maintenant</button>
+      </div>
+    </section>
 
     <section class="card stack">
       <h2>Classes et élèves</h2>
@@ -1105,8 +1214,8 @@ function viewSettings() {
 
     <section class="card stack">
       <h2>Sauvegarde</h2>
-      <p class="muted small">Les données sont enregistrées sur cet appareil uniquement. Exportez régulièrement une sauvegarde
-        (fichier .json) pour ne rien perdre ou pour transférer vers une autre tablette / un autre téléphone.
+      <p class="muted small">Les données sont enregistrées (chiffrées) sur cet appareil et, si la synchronisation est activée, sur votre Google Drive.
+        Une sauvegarde manuelle (fichier .json <b>non chiffré</b>, à conserver en lieu sûr) reste utile en cas de problème.
         ${state.lastBackup ? `<br>Dernière sauvegarde : ${dateFR(state.lastBackup)}.` : '<br><b>Aucune sauvegarde effectuée.</b>'}</p>
       <div class="row gap-s wrap">
         <button class="btn primary" data-act="export">Exporter une sauvegarde</button>
@@ -1125,6 +1234,7 @@ function viewSettings() {
       <p class="muted small">Une fois installée, l’application fonctionne hors connexion.</p>
     </section>`;
 
+  if (location.hash.includes('?sync')) $('#syncCard')?.scrollIntoView();
   const findComp = (id) => state.competences.find((c) => c.id === id);
   view.onclick = async (e) => {
     const t = e.target;
@@ -1135,6 +1245,56 @@ function viewSettings() {
     }
     const act = t.closest('[data-act]')?.dataset.act;
     if (act === 'import') return importStudents(cid);
+    if (act === 'lock') return lockNow();
+    if (act === 'changeCode') {
+      const cur = await openPin({
+        title: 'Code actuel',
+        subtitle: 'Saisissez votre code actuel.',
+        cancelLabel: 'Annuler',
+        onSubmit: async (c) => ((await checkCode(c)) ? true : 'Code incorrect'),
+      });
+      if (!cur) return;
+      let first = null;
+      const a = await openPin({ title: 'Nouveau code', subtitle: '6 chiffres', cancelLabel: 'Annuler', onSubmit: async (c) => ((first = c), true) });
+      if (!a) return;
+      const b = await openPin({
+        title: 'Confirmez le nouveau code',
+        cancelLabel: 'Annuler',
+        onSubmit: async (c) => {
+          if (c !== first) return 'Les deux codes sont différents';
+          await changeCode(c);
+          return true;
+        },
+      });
+      if (!b) return;
+      toast('Code modifié');
+      sync.sync();
+      return;
+    }
+    if (act === 'saveClientId') {
+      sync.setClientId($('#clientId').value);
+      toast('Identifiant enregistré');
+      sync.loadGIS().catch(() => {});
+      return render();
+    }
+    if (act === 'connect') {
+      try {
+        await sync.connect();
+        toast('Google Drive connecté');
+      } catch (err) {
+        alert(err.message);
+      }
+      return render();
+    }
+    if (act === 'syncNow') {
+      await sync.sync();
+      return render();
+    }
+    if (act === 'disconnect') {
+      if (!confirm('Déconnecter Google Drive sur cet appareil ? (le fichier reste sur votre Drive)')) return;
+      sync.disconnect();
+      return render();
+    }
     if (act === 'addClass') {
       const name = prompt('Nom de la nouvelle classe :')?.trim();
       if (!name) return;
@@ -1322,16 +1482,184 @@ const addDays = (iso, n) => {
 // Démarrage
 // ======================================================================
 
-function init() {
-  $$('.tabbar a').forEach((a) => {
-    a.insertAdjacentHTML('afterbegin', ICONS[a.dataset.icon]);
+// ======================================================================
+// Démarrage, code d'accès et synchronisation
+// ======================================================================
+
+const LOCK_AFTER_MS = 5 * 60 * 1000;
+const ATTEMPTS_KEY = 'evalq.attempts';
+
+async function unlockFlow() {
+  if (!isSetUp()) {
+    await createPin({
+      title: 'Créez votre code',
+      subtitle: 'Code à 6 chiffres demandé à chaque ouverture. Utilisez le même code sur tous vos appareils.',
+      onCreate: (c) => setupCode(c),
+    });
+    return;
+  }
+  await openPin({
+    title: 'EvalQ',
+    subtitle: 'Saisissez votre code',
+    onSubmit: async (c) => {
+      const a = JSON.parse(localStorage.getItem(ATTEMPTS_KEY) || '{"n":0,"until":0}');
+      if (Date.now() < a.until) return `Trop d’essais. Réessayez dans ${Math.ceil((a.until - Date.now()) / 1000)} s.`;
+      try {
+        await unlock(c);
+        localStorage.removeItem(ATTEMPTS_KEY);
+        return true;
+      } catch {
+        a.n++;
+        if (a.n >= 5) a.until = Date.now() + 30000 * 2 ** Math.min(a.n - 5, 6);
+        localStorage.setItem(ATTEMPTS_KEY, JSON.stringify(a));
+        return a.n >= 5 ? 'Code incorrect. Patientez avant de réessayer.' : 'Code incorrect';
+      }
+    },
+    links: [
+      {
+        label: 'Code oublié ?',
+        onClick: () => {
+          if (
+            confirm(
+              'Sans le code, les données ne peuvent pas être déchiffrées.\n\n' +
+                'Effacer les données de CET appareil et recommencer ?\n' +
+                '(Le fichier Google Drive, lui aussi protégé par ce code, ne sera plus lisible.)',
+            ) &&
+            confirm('Confirmer l’effacement de cet appareil ?')
+          ) {
+            wipeDevice();
+            location.reload();
+          }
+        },
+      },
+    ],
   });
-  window.addEventListener('hashchange', render);
-  render();
-  requestPersistence();
+}
+
+function lockNow() {
+  flush().then(() => location.reload());
+}
+
+let syncTimer = null;
+const scheduleSync = (ms = 4000) => {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => sync.sync(), ms);
+};
+
+function renderSyncBadge() {
+  const b = $('#syncBtn');
+  if (!b) return;
+  const { status, lastSync, error } = sync.getStatus();
+  const label = {
+    off: 'Synchronisation Google Drive non activée',
+    idle: 'Google Drive connecté',
+    syncing: 'Synchronisation…',
+    ok: `Synchronisé${lastSync ? ' à ' + new Date(lastSync).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''}`,
+    reconnect: 'Toucher pour se reconnecter à Google Drive',
+    error: error || 'Erreur de synchronisation',
+  }[status];
+  b.className = `sync-btn st-${status}`;
+  b.title = label;
+  b.setAttribute('aria-label', label);
+  const s = $('#syncStatus');
+  if (s) s.textContent = label;
+}
+
+async function syncButton() {
+  const { status } = sync.getStatus();
+  if (status === 'off') return go('#/reglages?sync');
+  try {
+    if (status === 'reconnect') await sync.connect();
+    else await sync.sync();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+function setupSync() {
+  sync.configure({
+    askCode: (check) =>
+      openPin({
+        title: 'Code du fichier Drive',
+        subtitle: 'Le fichier Google Drive utilise un autre code (modifié sur un autre appareil). Saisissez ce code : il deviendra celui de cet appareil.',
+        cancelLabel: 'Annuler',
+        onSubmit: async (c) => ((await check(c)) ? true : 'Code incorrect'),
+      }),
+    chooseFirst: (remote) =>
+      choose(
+        'Un fichier EvalQ existe déjà sur votre Google Drive',
+        `Drive : ${remote.students.length} élève(s), ${remote.evaluations.length} évaluation(s). ` +
+          `Cet appareil : ${state.students.length} élève(s), ${state.evaluations.length} évaluation(s).`,
+        [
+          ['drive', 'Utiliser les données du Drive (recommandé)', 'primary'],
+          ['merge', 'Fusionner les deux'],
+        ],
+      ),
+    onChanged: () => {
+      const a = document.activeElement;
+      if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && view.contains(a)) {
+        a.addEventListener('blur', () => render(), { once: true });
+      } else render();
+      toast('Données mises à jour depuis Google Drive');
+    },
+  });
+  sync.onStatus(renderSyncBadge);
+  onSave(() => scheduleSync());
+  window.addEventListener('online', () => sync.sync());
+  setInterval(() => document.visibilityState === 'visible' && sync.sync(), 120000);
+  if (sync.clientId() && navigator.onLine) sync.loadGIS().catch(() => {});
+  renderSyncBadge();
+  sync.sync();
+}
+
+function choose(title, text, buttons) {
+  return new Promise((resolve) => {
+    const el = document.createElement('div');
+    el.className = 'modal';
+    el.innerHTML = `<div class="modal-box card stack"><h2>${esc(title)}</h2><p>${esc(text)}</p>
+      <div class="stack">${buttons.map(([v, l, cls]) => `<button class="btn ${cls || ''}" data-v="${v}">${esc(l)}</button>`).join('')}</div></div>`;
+    document.body.appendChild(el);
+    el.onclick = (e) => {
+      const b = e.target.closest('[data-v]');
+      if (!b) return;
+      el.remove();
+      resolve(b.dataset.v);
+    };
+  });
+}
+
+async function init() {
+  $$('.tabbar a').forEach((a) => a.insertAdjacentHTML('afterbegin', ICONS[a.dataset.icon]));
+  $('#lockBtn').innerHTML = ICONS.lock;
+  $('#syncBtn').innerHTML = ICONS.cloud;
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW', e));
   }
+  if (!window.crypto?.subtle) {
+    document.body.innerHTML = '<p style="padding:24px">Cette application doit être ouverte en https.</p>';
+    return;
+  }
+  await unlockFlow();
+  document.body.classList.add('ready');
+  window.addEventListener('hashchange', render);
+  $('#lockBtn').onclick = lockNow;
+  $('#syncBtn').onclick = syncButton;
+  render();
+  requestPersistence();
+  setupSync();
+
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      hiddenAt = Date.now();
+      flush();
+      if (sync.isEnabled()) sync.sync();
+    } else if (hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS) {
+      lockNow();
+    } else {
+      sync.sync();
+    }
+  });
 }
 
 init();

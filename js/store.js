@@ -1,6 +1,13 @@
-import { DEFAULT_COMPETENCES, DEFAULT_EPREUVES } from './referentiel.js';
+import { DEFAULT_COMPETENCES, DEFAULT_EPREUVES, BEHAVIOR_COMP, BEHAVIOR_EPREUVE, BEHAVIOR_ID } from './referentiel.js';
+import { ITER, newSalt, deriveKey, encryptJSON, decryptJSON } from './crypto.js';
 
-const KEY = 'evalq.v1';
+const LEGACY_KEY = 'evalq.v1'; // ancien stockage en clair (migré puis supprimé)
+const SECURE_KEY = 'evalq.secure'; // stockage chiffré avec le code
+
+/** Collections synchronisées élément par élément (fusion par identifiant). */
+export const COLLECTIONS = ['classes', 'students', 'epreuves', 'competences', 'periods', 'semesters', 'evaluations'];
+/** Champs propres à chaque appareil, jamais écrasés par la synchronisation. */
+const LOCAL_FIELDS = ['currentClass', 'lastBackup'];
 
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 export const isNum = (v) => typeof v === 'number' && !Number.isNaN(v);
@@ -33,57 +40,263 @@ function defaultSemesters() {
 
 function defaultState() {
   return {
-    version: 1,
+    version: 2,
     classes: [
       { id: '1P2', name: '1P2' },
       { id: 'TP2', name: 'TP2' },
     ],
     students: [],
-    epreuves: structuredClone(DEFAULT_EPREUVES),
-    competences: structuredClone(DEFAULT_COMPETENCES),
+    epreuves: [structuredClone(BEHAVIOR_EPREUVE), ...structuredClone(DEFAULT_EPREUVES)],
+    competences: [...structuredClone(DEFAULT_COMPETENCES), structuredClone(BEHAVIOR_COMP)],
     periods: defaultPeriods(),
     semesters: defaultSemesters(),
     evaluations: [],
+    meta: { stamps: {}, deleted: {} },
     currentClass: '1P2',
     lastBackup: null,
   };
 }
 
-function load() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    return migrate(JSON.parse(raw));
-  } catch (e) {
-    console.error('Lecture impossible', e);
-    return null;
-  }
-}
-
 function migrate(s) {
   const d = defaultState();
   for (const k of Object.keys(d)) if (s[k] === undefined) s[k] = d[k];
+  s.meta.stamps ||= {};
+  s.meta.deleted ||= {};
+  // Ajout du « Comportement face au travail » (sauf s'il a été supprimé volontairement).
+  if (!s.epreuves.some((e) => e.id === BEHAVIOR_ID) && !s.meta.deleted[`epreuves:${BEHAVIOR_ID}`]) {
+    s.epreuves.unshift(structuredClone(BEHAVIOR_EPREUVE));
+  }
+  if (!s.competences.some((c) => c.id === BEHAVIOR_ID) && !s.meta.deleted[`competences:${BEHAVIOR_ID}`]) {
+    s.competences.push(structuredClone(BEHAVIOR_COMP));
+  }
+  s.version = 2;
   return s;
 }
 
-export let state = load() || defaultState();
+// ---------- État, clé de chiffrement et suivi des modifications ----------
 
-export function save() {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state));
-  } catch (e) {
-    alert('Impossible d’enregistrer les données : ' + e.message);
+export let state = null;
+let key = null;
+let salt = null;
+let iter = ITER;
+let snap = new Map(); // "collection:id" -> JSON du dernier état connu
+const saveListeners = new Set();
+export const onSave = (fn) => saveListeners.add(fn);
+
+function resetSnap() {
+  snap = new Map();
+  for (const c of COLLECTIONS) for (const e of state[c]) snap.set(`${c}:${e.id}`, JSON.stringify(e));
+}
+
+/** Horodate les éléments créés / modifiés et note les suppressions (pour la fusion entre appareils). */
+function stamp() {
+  const now = Date.now();
+  const seen = new Set();
+  for (const c of COLLECTIONS) {
+    for (const e of state[c]) {
+      const k = `${c}:${e.id}`;
+      seen.add(k);
+      const j = JSON.stringify(e);
+      if (snap.get(k) !== j) {
+        state.meta.stamps[k] = now;
+        delete state.meta.deleted[k];
+        snap.set(k, j);
+      }
+    }
+  }
+  for (const k of [...snap.keys()]) {
+    if (!seen.has(k)) {
+      state.meta.deleted[k] = now;
+      snap.delete(k);
+    }
   }
 }
 
+function initState(s) {
+  state = migrate(s);
+  resetSnap();
+}
+
+export const isSetUp = () => !!localStorage.getItem(SECURE_KEY);
+export const isUnlocked = () => !!key && !!state;
+
+/** Premier lancement : création du code (reprend les données de l'ancienne version si présentes). */
+export async function setupCode(code) {
+  salt = newSalt();
+  iter = ITER;
+  key = await deriveKey(code, salt, iter);
+  let legacy = null;
+  try {
+    legacy = JSON.parse(localStorage.getItem(LEGACY_KEY) || 'null');
+  } catch {
+    /* ignoré */
+  }
+  initState(legacy || defaultState());
+  await persistNow();
+  localStorage.removeItem(LEGACY_KEY);
+}
+
+/** Déverrouillage : lève une exception si le code est faux. */
+export async function unlock(code) {
+  const blob = JSON.parse(localStorage.getItem(SECURE_KEY));
+  const k = await deriveKey(code, blob.salt, blob.iter);
+  const data = await decryptJSON(k, blob);
+  key = k;
+  salt = blob.salt;
+  iter = blob.iter;
+  initState(data);
+}
+
+export async function checkCode(code) {
+  try {
+    await decryptJSON(await deriveKey(code, salt, iter), JSON.parse(localStorage.getItem(SECURE_KEY)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function changeCode(newCode) {
+  salt = newSalt();
+  iter = ITER;
+  key = await deriveKey(newCode, salt, iter);
+  await persistNow();
+}
+
+/** Efface toutes les données de cet appareil (code oublié). */
+export function wipeDevice() {
+  localStorage.removeItem(SECURE_KEY);
+  localStorage.removeItem(LEGACY_KEY);
+  localStorage.removeItem('evalq.sync');
+  sessionStorage.clear();
+}
+
+// ---------- Enregistrement chiffré ----------
+
+let persistTimer = null;
+let persistChain = Promise.resolve();
+
+export function persistNow() {
+  clearTimeout(persistTimer);
+  persistTimer = null;
+  const snapshot = JSON.parse(JSON.stringify(state));
+  const k = key;
+  const s = salt;
+  const it = iter;
+  persistChain = persistChain.then(async () => {
+    const blob = await encryptJSON(k, snapshot);
+    try {
+      localStorage.setItem(SECURE_KEY, JSON.stringify({ v: 1, salt: s, iter: it, ...blob, updatedAt: Date.now() }));
+    } catch (e) {
+      alert('Impossible d’enregistrer les données : ' + e.message);
+    }
+  });
+  return persistChain;
+}
+
+/** Termine les écritures en attente (avant verrouillage / mise en arrière-plan). */
+export function flush() {
+  return persistTimer ? persistNow() : persistChain;
+}
+
+export function save() {
+  if (!state) return;
+  stamp();
+  clearTimeout(persistTimer);
+  persistTimer = setTimeout(persistNow, 250);
+  saveListeners.forEach((fn) => fn());
+}
+
+/** Remplacement volontaire (restauration d'une sauvegarde) : l'emporte sur les autres appareils. */
 export function replaceState(next) {
-  state = migrate(next);
+  const local = Object.fromEntries(LOCAL_FIELDS.map((f) => [f, state[f]]));
+  const oldMeta = state.meta;
+  state = migrate({ ...next, meta: { stamps: { ...oldMeta.stamps }, deleted: { ...oldMeta.deleted } } });
+  Object.assign(state, local);
   save();
 }
 
 export function resetState() {
-  state = defaultState();
-  save();
+  replaceState(defaultState());
+}
+
+// ---------- Synchronisation : chiffrement et fusion ----------
+
+export async function encryptForRemote() {
+  return { v: 1, salt, iter, ...(await encryptJSON(key, state)), updatedAt: Date.now() };
+}
+
+/**
+ * Déchiffre le fichier distant. Si son code diffère (changé sur un autre appareil),
+ * `askCode(check)` demande le code ; cet appareil adopte alors ce code.
+ */
+export async function decryptRemote(blob, askCode) {
+  if (blob.salt === salt && blob.iter === iter) return { data: await decryptJSON(key, blob), rekeyed: false };
+  let found = null;
+  const code = await askCode(async (c) => {
+    try {
+      const k = await deriveKey(c, blob.salt, blob.iter);
+      found = { k, data: await decryptJSON(k, blob) };
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (!code || !found) throw new Error('Code du fichier Google Drive requis');
+  key = found.k;
+  salt = blob.salt;
+  iter = blob.iter;
+  return { data: found.data, rekeyed: true };
+}
+
+/** Signature des données partagées (pour savoir si un envoi est nécessaire). */
+export const dataSig = (s) => JSON.stringify([COLLECTIONS.map((c) => s[c]), s.meta]);
+
+export const hasContent = (s) => s.students.length > 0 || s.evaluations.length > 0;
+
+/** Fusion élément par élément : la version modifiée le plus récemment l'emporte ; suppressions propagées. */
+export function mergeStates(local, remote) {
+  remote = migrate(structuredClone(remote));
+  const L = local.meta;
+  const R = remote.meta;
+  const out = structuredClone(local);
+  out.meta = { stamps: { ...R.stamps }, deleted: { ...R.deleted } };
+  for (const [k, v] of Object.entries(L.stamps)) out.meta.stamps[k] = Math.max(out.meta.stamps[k] || 0, v);
+  for (const [k, v] of Object.entries(L.deleted)) out.meta.deleted[k] = Math.max(out.meta.deleted[k] || 0, v);
+  for (const c of COLLECTIONS) {
+    const lm = new Map(local[c].map((e) => [e.id, e]));
+    const rm = new Map(remote[c].map((e) => [e.id, e]));
+    const ids = [...rm.keys(), ...[...lm.keys()].filter((id) => !rm.has(id))];
+    out[c] = [];
+    for (const id of ids) {
+      const k = `${c}:${id}`;
+      const l = lm.get(id);
+      const r = rm.get(id);
+      const ls = L.stamps[k] || 0;
+      const rs = R.stamps[k] || 0;
+      const pick = !r ? l : !l ? r : ls >= rs ? l : r;
+      const ps = !r ? ls : !l ? rs : Math.max(ls, rs);
+      const del = out.meta.deleted[k] || 0;
+      if (del && del >= ps) continue;
+      delete out.meta.deleted[k];
+      out[c].push(structuredClone(pick));
+    }
+  }
+  for (const f of LOCAL_FIELDS) out[f] = local[f];
+  return out;
+}
+
+/** Données du fichier distant prises telles quelles (en gardant les réglages propres à l'appareil). */
+export function adoptRemote(remote) {
+  const out = migrate(structuredClone(remote));
+  for (const f of LOCAL_FIELDS) out[f] = state[f];
+  return out;
+}
+
+/** Applique un état fusionné (sans le considérer comme une modification locale). */
+export function applyMerged(next) {
+  initState(next);
+  return persistNow();
 }
 
 // ---------- Accès ----------
@@ -106,6 +319,12 @@ export function sortedCompetences() {
   return [...state.competences].sort((a, b) => n(a.id) - n(b.id) || a.id.localeCompare(b.id));
 }
 
+/** Compétences techniques (hors comportement). */
+export const techCompetences = () => sortedCompetences().filter((c) => !c.behavior);
+/** Compétence « Comportement face au travail » (ou null si supprimée). */
+export const behaviorComp = () => state.competences.find((c) => c.behavior) || null;
+const isBehaviorId = (id) => !!compById(id)?.behavior;
+
 // ---------- Calculs ----------
 
 /** Note d'une compétence pour un élève dans une évaluation = moyenne des critères notés. */
@@ -118,7 +337,18 @@ export function compScore(ev, sid, compId) {
 
 /** Moyenne d'une évaluation pour un élève (moyenne des compétences évaluées). */
 export function evalScore(ev, sid) {
+  const tech = evalTechScore(ev, sid);
+  if (tech !== null || Object.keys(ev.selection).some((c) => !isBehaviorId(c))) return tech;
   return mean(Object.keys(ev.selection).map((c) => compScore(ev, sid, c)));
+}
+
+/** Moyenne des seules compétences techniques d'une évaluation (null si aucune). */
+export function evalTechScore(ev, sid) {
+  return mean(
+    Object.keys(ev.selection)
+      .filter((c) => !isBehaviorId(c))
+      .map((c) => compScore(ev, sid, c)),
+  );
 }
 
 export function evalsFor({ classId, start, end, type = 'all', sid } = {}) {
@@ -147,9 +377,15 @@ export function critAverage(sid, critId, evals) {
   );
 }
 
-/** Moyenne générale = moyenne des moyennes de compétences. */
+/** Moyenne générale = moyenne des moyennes de compétences techniques (comportement exclu). */
 export function globalAverage(sid, evals) {
-  return mean(state.competences.map((c) => compAverage(sid, c.id, evals)));
+  return mean(state.competences.filter((c) => !c.behavior).map((c) => compAverage(sid, c.id, evals)));
+}
+
+/** Moyenne « Comportement face au travail ». */
+export function behaviorAverage(sid, evals) {
+  const b = behaviorComp();
+  return b ? compAverage(sid, b.id, evals) : null;
 }
 
 export function classCompAverage(classId, compId, evals) {

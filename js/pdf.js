@@ -2,7 +2,9 @@ import {
   classById,
   studentsOf,
   studentById,
-  sortedCompetences,
+  techCompetences,
+  behaviorComp,
+  behaviorAverage,
   evalsFor,
   compAverage,
   critAverage,
@@ -35,6 +37,8 @@ const LEVEL_RGB = { l4: [187, 247, 208], l3: [220, 252, 231], l2: [254, 240, 138
 const ORANGE = [234, 88, 12];
 const BLUE = [37, 99, 235];
 const ORANGE_BG = [255, 237, 213];
+const PURPLE = [124, 58, 237];
+const PURPLE_BG = [237, 233, 254];
 const BLUE_BG = [219, 234, 254];
 
 const dateFR = (iso) => (iso ? new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR') : '');
@@ -97,7 +101,8 @@ export async function bilanPDF({ classId, rangeId, studentIds, detail = true, ch
   const r = rangeById(rangeId);
   const prev = previousRange(r);
   const cls = classById(classId);
-  const comps = sortedCompetences();
+  const comps = techCompetences();
+  const beh = behaviorComp();
   const all = evalsFor({ classId, start: r.start, end: r.end });
   const ec = all.filter((e) => e.type === 'ecole');
   const en = all.filter((e) => e.type === 'entreprise');
@@ -127,16 +132,18 @@ export async function bilanPDF({ classId, rangeId, studentIds, detail = true, ch
       ...comps.map((c) => fmt(compAverage(s.id, c.id, all))),
       fmt(globalAverage(s.id, all)),
       fmt(globalAverage(s.id, en)),
+      ...(beh ? [fmt(behaviorAverage(s.id, all))] : []),
     ]);
     body.push([
       'Moyenne de la classe',
       ...comps.map((c) => fmt(classCompAverage(classId, c.id, all))),
       fmt(mean2(students.map((s) => globalAverage(s.id, all)))),
       fmt(mean2(students.map((s) => globalAverage(s.id, en)))),
+      ...(beh ? [fmt(classCompAverage(classId, beh.id, all))] : []),
     ]);
     doc.autoTable({
       startY: 32,
-      head: [['Élève', ...comps.map((c) => c.id), 'Moy.', 'Entr. [E]']],
+      head: [['Élève', ...comps.map((c) => c.id), 'Moy.', 'Entr. [E]', ...(beh ? ['Comport.'] : [])]],
       body: body.map((row) => row.map(clean)),
       theme: 'grid',
       styles: { fontSize: 8, halign: 'center', cellPadding: 1.5 },
@@ -144,6 +151,7 @@ export async function bilanPDF({ classId, rangeId, studentIds, detail = true, ch
       columnStyles: { 0: { halign: 'left', cellWidth: 48 } },
       didParseCell(d) {
         if (d.section === 'head' && d.column.index === comps.length + 2) d.cell.styles.fillColor = ORANGE;
+        if (d.section === 'head' && d.column.index === comps.length + 3) d.cell.styles.fillColor = PURPLE;
         if (d.section !== 'body' || d.column.index === 0) return;
         const v = parseFloat(String(d.cell.raw).replace(',', '.'));
         colorCell(d, isNaN(v) ? null : v);
@@ -154,7 +162,9 @@ export async function bilanPDF({ classId, rangeId, studentIds, detail = true, ch
     let y = doc.lastAutoTable.finalY + 4;
     doc.setFontSize(7.5);
     doc.setTextColor(90);
-    const labels = comps.map((c) => `${c.id} ${c.label}`).join('   ');
+    const labels =
+      comps.map((c) => `${c.id} ${c.label}`).join('   ') +
+      (beh ? `   Comport. = ${beh.label} (hors moyenne)` : '');
     const lines = doc.splitTextToSize(clean(labels), doc.internal.pageSize.getWidth() - 20);
     doc.text(lines, 10, y + 2);
     y += lines.length * 3.2 + 4;
@@ -194,7 +204,7 @@ export async function bilanPDF({ classId, rangeId, studentIds, detail = true, ch
       doc.deletePage(1);
     }
     first = false;
-    studentPage(doc, s, { r, prev, comps, all, ec, en, prevAll, sub, detail, charts, cls });
+    studentPage(doc, s, { beh, r, prev, comps, all, ec, en, prevAll, sub, detail, charts, cls });
   }
 
   footers(doc);
@@ -210,7 +220,7 @@ const mean2 = (vals) => {
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
 };
 
-function studentPage(doc, s, { r, prev, comps, all, ec, en, prevAll, sub, detail, charts, cls }) {
+function studentPage(doc, s, { beh, r, prev, comps, all, ec, en, prevAll, sub, detail, charts, cls }) {
   const mine = (list) => list.filter((e) => e.students.includes(s.id));
   header(doc, `${fullName(s)} - ${cls?.name ?? ''}`, sub);
   const g = globalAverage(s.id, all);
@@ -222,7 +232,10 @@ function studentPage(doc, s, { r, prev, comps, all, ec, en, prevAll, sub, detail
   doc.setFontSize(9);
   const evo = isNum(g) && isNum(gp) ? ` (${prev.name} : ${fmt(gp)} ; évolution ${sign(g - gp)})` : '';
   doc.text(
-    clean(`École : ${fmt(globalAverage(s.id, ec))}   Entreprise [E] : ${fmt(globalAverage(s.id, en))}${evo}`),
+    clean(
+      `École : ${fmt(globalAverage(s.id, ec))}   Entreprise [E] : ${fmt(globalAverage(s.id, en))}${evo}` +
+        (beh ? `   Comportement : ${fmt(behaviorAverage(s.id, all))}` : ''),
+    ),
     10,
     29,
   );
@@ -276,6 +289,50 @@ function studentPage(doc, s, { r, prev, comps, all, ec, en, prevAll, sub, detail
       y = 22;
     }
   };
+
+  if (beh) {
+    const rowsB = beh.criteres.map((k) => [
+      k.label,
+      fmt(critAverage(s.id, k.id, ec)),
+      fmt(critAverage(s.id, k.id, en)),
+      fmt(critAverage(s.id, k.id, all)),
+    ]);
+    rowsB.push([
+      'Moyenne comportement',
+      fmt(behaviorAverage(s.id, ec)),
+      fmt(behaviorAverage(s.id, en)),
+      fmt(behaviorAverage(s.id, all)),
+    ]);
+    ensure(12 + rowsB.length * 6);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...PURPLE);
+    doc.text(clean(`${beh.label} (hors moyenne des compétences)`), 10, y + 2);
+    doc.setTextColor(20);
+    doc.setFont('helvetica', 'normal');
+    doc.autoTable({
+      startY: y + 4,
+      head: [['Critère', 'École', 'Entreprise [E]', 'Moyenne']],
+      body: rowsB.map((row) => row.map(clean)),
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 1.3, halign: 'center' },
+      headStyles: { fillColor: PURPLE },
+      columnStyles: { 0: { halign: 'left' } },
+      margin: { top: 22 },
+      didParseCell(d) {
+        if (d.section !== 'body') return;
+        if (d.row.index === rowsB.length - 1) {
+          d.cell.styles.fontStyle = 'bold';
+          d.cell.styles.fillColor = PURPLE_BG;
+        }
+        if (d.column.index > 0) {
+          const v = parseFloat(String(d.cell.raw).replace(',', '.'));
+          colorCell(d, isNaN(v) ? null : v);
+        }
+      },
+    });
+    y = doc.lastAutoTable.finalY + 4;
+  }
 
   if (charts) {
     const img = renderToImage(

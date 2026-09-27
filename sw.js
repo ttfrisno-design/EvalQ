@@ -1,5 +1,5 @@
 // Service worker : fonctionnement hors connexion (cache de l'application).
-const VERSION = 'evalq-v1';
+const VERSION = 'evalq-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -12,6 +12,10 @@ const ASSETS = [
   './js/pdf.js',
   './js/import.js',
   './js/util.js',
+  './js/crypto.js',
+  './js/lock.js',
+  './js/sync.js',
+  './js/config.js',
   './vendor/chart.umd.min.js',
   './vendor/jspdf.umd.min.js',
   './vendor/jspdf.plugin.autotable.min.js',

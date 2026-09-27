@@ -115,3 +115,18 @@ export const DEFAULT_COMPETENCES = RAW.map(([id, label, epreuve, crits]) => ({
   epreuve,
   criteres: crits.map((c, i) => ({ id: `${id}-${i + 1}`, label: c })),
 }));
+
+// Comportement face au travail : évalué comme une compétence (critères sur 10),
+// mais affiché à part et exclu de la moyenne des compétences techniques.
+export const BEHAVIOR_ID = 'CPT';
+export const BEHAVIOR_EPREUVE = { id: BEHAVIOR_ID, label: 'Comportement face au travail' };
+export const BEHAVIOR_COMP = {
+  id: BEHAVIOR_ID,
+  label: 'Comportement face au travail',
+  epreuve: BEHAVIOR_ID,
+  behavior: true,
+  criteres: ['Rythme', 'Application', 'Persévérance', 'Soin', 'Autonomie', 'Efficacité', 'Initiative'].map((label, i) => ({
+    id: `${BEHAVIOR_ID}-${i + 1}`,
+    label,
+  })),
+};
