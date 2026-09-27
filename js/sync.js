@@ -49,7 +49,9 @@ function setStatus(s, err = '') {
   listeners.forEach((fn) => fn());
 }
 
-export const clientId = () => (info.clientId || GOOGLE_CLIENT_ID || '').trim();
+// L'identifiant intégré à l'application est prioritaire sur une saisie manuelle.
+export const clientId = () => (GOOGLE_CLIENT_ID || info.clientId || '').trim();
+export const clientIdBuiltIn = () => !!GOOGLE_CLIENT_ID;
 export function setClientId(v) {
   info.clientId = v.trim();
   saveInfo();

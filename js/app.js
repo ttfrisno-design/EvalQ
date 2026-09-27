@@ -1103,10 +1103,14 @@ function syncSectionHTML() {
           : `<div><button class="btn primary" data-act="connect">${ICONS.cloud}Connecter Google Drive</button></div>`
     }
     <details class="guide" ${cid ? '' : 'open'}><summary>Identifiant client Google ${cid ? '(configuré)' : ''}</summary>
-      <div class="row gap-s wrap" style="margin:8px 0">
+      ${
+        sync.clientIdBuiltIn()
+          ? `<p class="small muted" style="margin:8px 0">Intégré à l’application : <code>${esc(cid)}</code></p>`
+          : `<div class="row gap-s wrap" style="margin:8px 0">
         <input id="clientId" class="grow" placeholder="xxxxxxxx.apps.googleusercontent.com" value="${esc(cid)}">
         <button class="btn" data-act="saveClientId">Enregistrer</button>
-      </div>
+      </div>`
+      }
       <label class="field"><span>Dossier Google Drive (identifiant ou adresse du dossier, facultatif)</span>
         <div class="row gap-s wrap"><input id="folderId" class="grow" value="${esc(sync.folderId())}" placeholder="ex. 1epo5m15lHIEy…">
         <button class="btn" data-act="saveFolderId">Enregistrer</button></div></label>
