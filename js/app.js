@@ -1095,6 +1095,7 @@ function syncSectionHTML() {
         : sync.isEnabled()
           ? `<p class="status-line">${esc(st.email || 'Compte Google connecté')} · <span id="syncStatus"></span></p>
              <p class="muted small">Dernière synchronisation : ${esc(last)}</p>
+             ${sync.placementNote() ? `<p class="small">${esc(sync.placementNote())}</p>` : ''}
              <div class="row gap-s wrap">
                ${st.status === 'reconnect' ? `<button class="btn primary" data-act="connect">Se reconnecter</button>` : `<button class="btn primary" data-act="syncNow">Synchroniser maintenant</button>`}
                <button class="btn ghost danger" data-act="disconnect">Déconnecter</button>
@@ -1106,6 +1107,9 @@ function syncSectionHTML() {
         <input id="clientId" class="grow" placeholder="xxxxxxxx.apps.googleusercontent.com" value="${esc(cid)}">
         <button class="btn" data-act="saveClientId">Enregistrer</button>
       </div>
+      <label class="field"><span>Dossier Google Drive (identifiant ou adresse du dossier, facultatif)</span>
+        <div class="row gap-s wrap"><input id="folderId" class="grow" value="${esc(sync.folderId())}" placeholder="ex. 1epo5m15lHIEy…">
+        <button class="btn" data-act="saveFolderId">Enregistrer</button></div></label>
       <p class="small"><b>Créer l’identifiant (une seule fois, gratuit) :</b></p>
       <ol class="small">
         <li>Ouvrir <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a> et créer un projet « EvalQ ».</li>
@@ -1275,6 +1279,11 @@ function viewSettings() {
       sync.setClientId($('#clientId').value);
       toast('Identifiant enregistré');
       sync.loadGIS().catch(() => {});
+      return render();
+    }
+    if (act === 'saveFolderId') {
+      sync.setFolderId($('#folderId').value);
+      toast('Dossier enregistré (utilisé à la création du fichier)');
       return render();
     }
     if (act === 'connect') {

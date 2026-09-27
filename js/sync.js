@@ -1,7 +1,7 @@
 /* global google */
 // Synchronisation avec un fichier unique dans le Google Drive de l'utilisateur.
 // Le fichier est chiffré avec le code à 6 chiffres ; Google ne voit pas les données en clair.
-import { GOOGLE_CLIENT_ID } from './config.js';
+import { GOOGLE_CLIENT_ID, GOOGLE_FOLDER_ID } from './config.js';
 import {
   state,
   hasContent,
@@ -54,6 +54,15 @@ export function setClientId(v) {
   info.clientId = v.trim();
   saveInfo();
 }
+export const folderId = () => (info.folderId ?? GOOGLE_FOLDER_ID ?? '').trim();
+export function setFolderId(v) {
+  info.folderId = parseFolderId(v);
+  saveInfo();
+}
+/** Accepte l'identifiant seul ou l'adresse complète du dossier (…/folders/<id>). */
+const parseFolderId = (v) => (String(v).match(/folders\/([\w-]+)/)?.[1] || String(v)).trim();
+/** Message d'information sur l'emplacement du fichier (ou ''). */
+export const placementNote = () => info.placementNote || '';
 export const isEnabled = () => !!info.enabled;
 const hasToken = () => !!tok.access && Date.now() < tok.exp;
 
@@ -139,7 +148,9 @@ async function api(url, opts = {}) {
       sessionStorage.removeItem(TOKEN_KEY);
       throw new AuthError('Session Google expirée');
     }
-    throw new Error('Accès Google Drive refusé (403)');
+    const e = new Error('Accès Google Drive refusé (403)');
+    e.status = 403;
+    throw e;
   }
   if (!r.ok) {
     const e = new Error(`Google Drive : erreur ${r.status}`);
@@ -166,8 +177,26 @@ async function findFile() {
 const download = async (id) => (await api(`${API}/files/${id}?alt=media`)).json();
 
 async function create(blob) {
+  const folder = folderId();
+  if (folder) {
+    try {
+      const id = await createIn(blob, [folder]);
+      info.placementNote = '';
+      return id;
+    } catch (e) {
+      if (e instanceof AuthError || !(e.status === 404 || e.status === 403 || /403/.test(e.message))) throw e;
+      info.placementNote =
+        'Google n’a pas autorisé l’accès au dossier choisi : le fichier EvalQ-donnees.json a été créé à la racine de votre Drive. ' +
+        'Vous pouvez le déplacer dans votre dossier, la synchronisation continuera.';
+    }
+  }
+  return createIn(blob, null);
+}
+
+async function createIn(blob, parents) {
   const b = 'evalq' + Math.random().toString(36).slice(2);
   const meta = { name: FILE_NAME, mimeType: 'application/json', description: 'Données EvalQ (chiffrées avec votre code)' };
+  if (parents) meta.parents = parents;
   const body =
     `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n` +
     `--${b}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(blob)}\r\n--${b}--`;
