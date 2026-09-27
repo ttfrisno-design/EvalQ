@@ -1,5 +1,5 @@
 // Service worker : fonctionnement hors connexion (cache de l'application).
-const VERSION = 'evalq-v2';
+const VERSION = 'evalq-v3';
 const ASSETS = [
   './',
   './index.html',
