@@ -1,0 +1,6 @@
+node_modules/
+*.xlsx
+*.xls
+*.json.bak
+EvalQ_sauvegarde_*.json
+.DS_Store

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>EvalQ – Compétences MELEC</title>
+    <meta name="description" content="Évaluation des compétences des élèves (école et entreprise), suivi et bilans PDF." />
+    <meta name="theme-color" content="#1d4ed8" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="EvalQ" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon-192.png" type="image/png" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><img src="icons/icon-192.png" alt="" width="28" height="28" />EvalQ</div>
+      <div class="class-switch" id="classSwitch" role="tablist" aria-label="Classe"></div>
+    </header>
+
+    <main id="view" class="container"></main>
+
+    <nav class="tabbar">
+      <a href="#/evals" data-tab="evals" data-icon="eval"><span>Évaluations</span></a>
+      <a href="#/eleves" data-tab="eleves" data-icon="eleves"><span>Élèves</span></a>
+      <a href="#/bilans" data-tab="bilans" data-icon="bilan"><span>Bilans</span></a>
+      <a href="#/reglages" data-tab="reglages" data-icon="reglages"><span>Réglages</span></a>
+    </nav>
+
+    <div class="busy-overlay"><div class="spinner"></div><p>Génération du PDF…</p></div>
+
+    <script src="vendor/chart.umd.min.js"></script>
+    <script src="vendor/jspdf.umd.min.js"></script>
+    <script src="vendor/jspdf.plugin.autotable.min.js"></script>
+    <script src="vendor/xlsx.mini.min.js"></script>
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
