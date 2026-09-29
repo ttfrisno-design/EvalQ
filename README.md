@@ -83,7 +83,3 @@ produit un fichier non chiffré, à conserver en lieu sûr.
 HTML / CSS / JavaScript sans étape de compilation. Bibliothèques incluses dans `vendor/` (pour le hors-ligne) :
 Chart.js 4.5.1, jsPDF 2.5.2, jspdf-autotable 3.8.4, SheetJS 0.18.5 (mini).
 Pour tester en local : `python3 -m http.server` puis ouvrir `http://localhost:8000`.
-
-## Autre application du dépôt
-
-- [`appel/`](appel/README.md) : application d’appel (présent / absent) du Foyer Rural d’Isneauville, PWA reliée à Google Sheets via Apps Script.
