@@ -1,5 +1,5 @@
 // Service worker : fonctionnement hors connexion (cache de l'application).
-const VERSION = 'evalq-v4';
+const VERSION = 'evalq-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -16,6 +16,14 @@ const ASSETS = [
   './js/lock.js',
   './js/sync.js',
   './js/config.js',
+  './js/media.js',
+  './js/sigpad.js',
+  './js/pfmp.js',
+  './js/pfmp-ref.js',
+  './js/pfmp-form.js',
+  './js/pfmp-views.js',
+  './js/pfmp-pdf.js',
+  './eleve.html',
   './vendor/chart.umd.min.js',
   './vendor/jspdf.umd.min.js',
   './vendor/jspdf.plugin.autotable.min.js',

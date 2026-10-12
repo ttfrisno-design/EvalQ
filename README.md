@@ -34,6 +34,19 @@ Elle fonctionne **hors connexion** une fois installée. Aucune donnée n’est e
 - **Synchronisation Google Drive** : un fichier unique `EvalQ-donnees.json` dans votre Drive, partagé par tous vos
   appareils (PC, tablette, téléphone). Travail possible hors connexion ; fusion automatique des modifications
   faites sur plusieurs appareils.
+- **PFMP** (onglet PFMP) : fiche d’évaluation de l’apprenant en entreprise (épreuve E3) et attestation de PFMP.
+  1. Création de la PFMP pour la classe (n°, session, dates) : une fiche par élève.
+  2. Avant la PFMP, l’élève complète ses informations et celles de l’entreprise : par un **lien** ouvert sur son
+     téléphone (page `eleve.html`, aucune donnée stockée en ligne ; il renvoie sa fiche par e-mail et le professeur
+     l’importe en ouvrant le lien reçu), ou en **mode élève** sur l’appareil du professeur (sortie avec le code).
+  3. À la visite, professeur et tuteur évaluent les compétences souhaitées (critères officiels, - / + / ++ / +++),
+     les attitudes professionnelles AP1–AP5 et rédigent la synthèse. Ces notes alimentent le suivi des compétences
+     comme évaluation en entreprise (- 0 · + 4 · ++ 7 · +++ 10).
+  4. Le tuteur atteste le nombre de jours effectifs, signe au doigt ; le cachet est photographié. Signature et cachet
+     servent pour la fiche et l’attestation, et sont mémorisés pour l’entreprise (réutilisables). La signature du
+     professeur est enregistrée une fois dans Réglages.
+  5. Le PDF (fiche + attestation) est envoyé au service des PFMP (pièce jointe via le partage du téléphone / de la
+     tablette, ou téléchargement + e-mail préparé sur ordinateur).
 - **Sauvegarde / restauration** manuelle (fichier `.json`).
 
 ## Mise en ligne (GitHub Pages)

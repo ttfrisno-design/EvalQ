@@ -5,7 +5,18 @@ const LEGACY_KEY = 'evalq.v1'; // ancien stockage en clair (migré puis supprim�
 const SECURE_KEY = 'evalq.secure'; // stockage chiffré avec le code
 
 /** Collections synchronisées élément par élément (fusion par identifiant). */
-export const COLLECTIONS = ['classes', 'students', 'epreuves', 'competences', 'periods', 'semesters', 'evaluations'];
+export const COLLECTIONS = [
+  'classes',
+  'students',
+  'epreuves',
+  'competences',
+  'periods',
+  'semesters',
+  'evaluations',
+  'pfmps',
+  'companies',
+  'prefs',
+];
 /** Champs propres à chaque appareil, jamais écrasés par la synchronisation. */
 const LOCAL_FIELDS = ['currentClass', 'lastBackup'];
 
@@ -38,6 +49,21 @@ function defaultSemesters() {
   ];
 }
 
+/** Réglages de l'établissement (fiche PFMP / attestation). */
+export function defaultEtab() {
+  return {
+    id: 'etab',
+    schoolName: 'Lycée Raymond QUENEAU',
+    schoolAddress: 'Rue du Dr Zamenhof, 76190 Yvetot',
+    headName: 'M. LE TORTOREC',
+    headTitle: 'chef d’établissement',
+    teacherName: '',
+    teacherEmail: '',
+    pfmpEmail: '',
+    teacherSignature: null,
+  };
+}
+
 function defaultState() {
   return {
     version: 2,
@@ -51,6 +77,9 @@ function defaultState() {
     periods: defaultPeriods(),
     semesters: defaultSemesters(),
     evaluations: [],
+    pfmps: [],
+    companies: [],
+    prefs: [defaultEtab()],
     meta: { stamps: {}, deleted: {} },
     currentClass: '1P2',
     lastBackup: null,
@@ -60,6 +89,7 @@ function defaultState() {
 function migrate(s) {
   const d = defaultState();
   for (const k of Object.keys(d)) if (s[k] === undefined) s[k] = d[k];
+  if (!s.prefs.some((p) => p.id === 'etab')) s.prefs.push(defaultEtab());
   s.meta.stamps ||= {};
   s.meta.deleted ||= {};
   // Ajout du « Comportement face au travail » (sauf s'il a été supprimé volontairement).
@@ -169,6 +199,11 @@ export function wipeDevice() {
   localStorage.removeItem(LEGACY_KEY);
   localStorage.removeItem('evalq.sync');
   sessionStorage.clear();
+  try {
+    indexedDB.deleteDatabase('evalq-media');
+  } catch {
+    /* ignoré */
+  }
 }
 
 // ---------- Enregistrement chiffré ----------

@@ -46,11 +46,15 @@ import {
 } from './store.js';
 import { openPin, createPin } from './lock.js';
 import * as sync from './sync.js';
+import { viewPfmpList, viewPfmpNew, viewPfmp, viewPfmpImport, etabSectionHTML, wireEtabSection } from './pfmp-views.js';
+import { pfmpById } from './pfmp.js';
 import { esc, $, $$, dateFR, toast, pickFile, shareOrDownload, ICONS, typeBadge } from './util.js';
 import * as charts from './charts.js';
 import { parseStudentFile, applyImport } from './import.js';
 
 const view = $('#view');
+// Contexte transmis aux écrans PFMP.
+const ctx = { view, go: (h) => go(h), render: () => render(), withBusy: (fn) => withBusy(fn) };
 
 // État d'interface (non persistant, sauf quelques préférences)
 const ui = {
@@ -83,13 +87,25 @@ const routes = [
   [/^#\/eleve\/([\w-]+)$/, (m) => viewStudent(studentById(m[1]))],
   [/^#\/bilans$/, () => viewBilans()],
   [/^#\/reglages$/, () => viewSettings()],
+  [/^#\/pfmp$/, () => viewPfmpList(ctx)],
+  [/^#\/pfmp\/new$/, () => viewPfmpNew(ctx)],
+  [/^#\/pfmp-import\/([\w-]+)$/, (m) => viewPfmpImport(ctx, m[1])],
+  [/^#\/pfmp\/([\w-]+)$/, (m) => viewPfmp(ctx, pfmpById(m[1]))],
 ];
 
 function render() {
   charts.destroyAll();
   view.onclick = view.onchange = view.oninput = null;
   const hash = location.hash.split('?')[0];
-  const tab = hash.startsWith('#/eleve') ? 'eleves' : hash.startsWith('#/bilans') ? 'bilans' : hash.startsWith('#/reglages') ? 'reglages' : 'evals';
+  const tab = hash.startsWith('#/eleve')
+    ? 'eleves'
+    : hash.startsWith('#/bilans')
+      ? 'bilans'
+      : hash.startsWith('#/reglages')
+        ? 'reglages'
+        : hash.startsWith('#/pfmp')
+          ? 'pfmp'
+          : 'evals';
   $$('.tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
   renderClassSwitch();
   for (const [re, fn] of routes) {
@@ -225,7 +241,8 @@ function evalCard(e) {
   const nCrit = comps.reduce((n, c) => n + e.selection[c].length, 0);
   const pct = Math.round(evalCompletion(e) * 100);
   const avg = mean(e.students.map((s) => evalScore(e, s)));
-  return `<a class="card eval-card type-${e.type}" href="#/eval/${e.id}">
+  const href = e.source === 'pfmp' ? `#/pfmp/${e.pfmpId}` : `#/eval/${e.id}`;
+  return `<a class="card eval-card type-${e.type}" href="${href}">
     <div class="eval-main">
       <div class="eval-title">${esc(e.title)}</div>
       <div class="muted small">${dateFR(e.date, { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
@@ -249,6 +266,7 @@ function evalCard(e) {
 // ======================================================================
 
 function viewEvalForm(ev) {
+  if (ev?.source === 'pfmp') return go('#/pfmp/' + ev.pfmpId);
   const editing = !!ev;
   const d = editing
     ? structuredClone(ev)
@@ -430,6 +448,7 @@ function deleteEval(id) {
 
 function viewSaisie(ev) {
   if (!ev) return go('#/evals');
+  if (ev.source === 'pfmp') return go('#/pfmp/' + ev.pfmpId);
   const params = new URLSearchParams(location.hash.split('?')[1] || '');
   const students = ev.students.map(studentById).filter(Boolean).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
   if (params.get('s')) {
@@ -861,7 +880,7 @@ function viewStudent(s) {
       <div class="list">${[...mineAll]
         .reverse()
         .map(
-          (e) => `<a class="eval-line type-${e.type}" href="#/eval/${e.id}?s=${s.id}">
+          (e) => `<a class="eval-line type-${e.type}" href="${e.source === 'pfmp' ? `#/pfmp/${e.pfmpId}` : `#/eval/${e.id}?s=${s.id}`}">
             <span class="muted small">${dateFR(e.date)}</span>
             <span class="grow">${esc(e.title)}${e.type === 'entreprise' ? ` <span class="badge badge-entreprise">${ICONS.entreprise}${esc(e.companies?.[s.id] || 'Entreprise')}</span>` : ''}
             ${e.comments?.[s.id] ? `<br><span class="muted small">« ${esc(e.comments[s.id])} »</span>` : ''}</span>
@@ -1150,6 +1169,8 @@ function viewSettings() {
 
     ${syncSectionHTML()}
 
+    ${etabSectionHTML()}
+
     <section class="card stack">
       <h2>${ICONS.lock} Code d’accès</h2>
       <p class="muted small">Le code à 6 chiffres est demandé à chaque ouverture (et après 5 minutes en arrière-plan).
@@ -1243,6 +1264,8 @@ function viewSettings() {
     </section>`;
 
   if (location.hash.includes('?sync')) $('#syncCard')?.scrollIntoView();
+  if (location.hash.includes('?etab')) $('#etabCard')?.scrollIntoView();
+  wireEtabSection(ctx);
   const findComp = (id) => state.competences.find((c) => c.id === id);
   view.onclick = async (e) => {
     const t = e.target;
@@ -1331,6 +1354,7 @@ function viewSettings() {
       state.classes = state.classes.filter((x) => x.id !== cid);
       state.students = state.students.filter((s) => s.classId !== cid);
       state.evaluations = state.evaluations.filter((ev) => ev.classId !== cid);
+      state.pfmps = state.pfmps.filter((x) => x.classId !== cid);
       if (!state.classes.length) state.classes.push({ id: '1P2', name: '1P2' });
       if (state.currentClass === cid) state.currentClass = state.classes[0].id;
       ui.settingsClass = state.classes[0].id;
@@ -1354,6 +1378,8 @@ function viewSettings() {
       const s = studentById(ds.dataset.delstudent);
       if (!confirm(`Supprimer ${fullName(s)} et toutes ses notes ?`)) return;
       state.students = state.students.filter((x) => x.id !== s.id);
+      state.pfmps = state.pfmps.filter((x) => x.studentId !== s.id);
+      state.evaluations = state.evaluations.filter((x) => !(x.source === 'pfmp' && x.students.includes(s.id)));
       for (const ev of state.evaluations) {
         ev.students = ev.students.filter((x) => x !== s.id);
         delete ev.notes[s.id];

@@ -1392,3 +1392,230 @@ body.locked {
   border-radius: 5px;
   word-break: break-all;
 }
+
+/* ---------- PFMP ---------- */
+
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.step .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--line);
+}
+.step.done {
+  background: #dcfce7;
+  color: #166534;
+}
+.step.done .dot {
+  background: #16a34a;
+}
+.steps.compact {
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+.steps.compact .step {
+  padding: 0;
+  background: none;
+}
+.steps.compact .step .dot {
+  width: 12px;
+  height: 12px;
+}
+.pfmp-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-left: 6px solid var(--entreprise);
+}
+.pfmp-card svg {
+  width: 15px;
+  height: 15px;
+  vertical-align: -2px;
+  color: var(--entreprise);
+}
+.pf-group {
+  border-top: 2px solid var(--entreprise);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pf-group h3 {
+  color: var(--entreprise);
+}
+.pf-tasks .check {
+  padding: 4px 0;
+}
+.pf-comp {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.pf-comp summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--entreprise-bg);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+.pf-crit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
+.pf-crit-label {
+  flex: 1 1 260px;
+  font-size: 0.92rem;
+}
+.lv4 {
+  display: grid;
+  grid-template-columns: repeat(4, 56px);
+  gap: 4px;
+}
+.lv4 button,
+.att-options button {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.lv4 button.on {
+  color: #fff;
+  border-color: transparent;
+}
+.lv4 .l0.on {
+  background: #dc2626;
+}
+.lv4 .l1.on {
+  background: #d97706;
+}
+.lv4 .l2.on {
+  background: #65a30d;
+}
+.lv4 .l3.on {
+  background: #15803d;
+}
+.att {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.att-options {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+.att-options button {
+  font-weight: 600;
+  font-size: 0.8rem;
+  padding: 4px;
+  line-height: 1.15;
+}
+.att-options button.on {
+  background: var(--entreprise);
+  color: #fff;
+  border-color: transparent;
+}
+@media (max-width: 560px) {
+  .att-options {
+    grid-template-columns: 1fr;
+  }
+}
+.sig-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+.sig-tile {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sig-img {
+  min-height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+}
+.sig-img img {
+  max-width: 100%;
+  max-height: 140px;
+}
+.sig-box {
+  max-width: 720px;
+}
+.sig-wrap {
+  position: relative;
+  background: #fff;
+  border: 2px dashed #94a3b8;
+  border-radius: 12px;
+  height: min(46vh, 300px);
+}
+.sig-canvas {
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  display: block;
+  border-radius: 12px;
+}
+.sig-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+input.invalid {
+  border-color: var(--danger);
+  background: #fef2f2;
+}
+.kiosk {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: var(--bg);
+  overflow-y: auto;
+  padding-top: env(safe-area-inset-top);
+}
+body.kiosk-on {
+  overflow: hidden;
+}
+.sticky-actions.no-tabbar {
+  bottom: calc(env(safe-area-inset-bottom) + 8px);
+}
+body.student-page {
+  padding-bottom: 24px;
+}
+.tabbar a {
+  font-size: 0.7rem;
+}

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <title>Fiche PFMP – élève</title>
+    <meta name="theme-color" content="#1d4ed8" />
+    <link rel="icon" href="icons/icon-192.png" type="image/png" />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body class="ready student-page">
+    <header class="topbar">
+      <div class="brand"><img src="icons/icon-192.png" alt="" width="28" height="28" /><span class="brand-name">Fiche PFMP</span></div>
+    </header>
+    <main id="main" class="container"></main>
+
+    <script type="module">
+      import { formHTML, collect, missing } from './js/pfmp-form.js';
+      import { decodePayload, encodePayload } from './js/pfmp-ref.js';
+      import { esc, dateFR } from './js/util.js';
+
+      const main = document.getElementById('main');
+      let req = null;
+      try {
+        req = decodePayload(location.hash.slice(1));
+        if (req.k !== 'evalq-pfmp-req') throw new Error();
+      } catch {
+        main.innerHTML = '<div class="card empty"><h2>Lien incomplet</h2><p>Demandez à votre professeur de vous renvoyer le lien de votre fiche PFMP.</p></div>';
+        throw new Error('lien invalide');
+      }
+      const DRAFT = 'evalq-eleve-' + req.p;
+      const load = () => {
+        try {
+          return JSON.parse(localStorage.getItem(DRAFT) || 'null');
+        } catch {
+          return null;
+        }
+      };
+      const base = location.href.split('#')[0].replace(/eleve\.html.*$/, '');
+
+      function showForm() {
+        main.innerHTML = `
+          <div class="card stack">
+            <h1>${esc(req.n)}</h1>
+            <p class="muted">Classe ${esc(req.c)} · PFMP n° ${esc(req.num || '')}
+              ${req.s ? ` · du ${dateFR(req.s)} au ${dateFR(req.e)}` : ''}</p>
+            <p class="small">Complétez vos informations et celles de l’entreprise qui vous accueille, puis envoyez la fiche à votre professeur.
+              Vos réponses restent sur votre téléphone jusqu’à l’envoi.</p>
+          </div>
+          <form id="f" class="stack">${formHTML(load() || {})}
+            <div class="actions sticky-actions no-tabbar"><span class="spacer"></span>
+              <button class="btn primary" type="submit">Valider ma fiche</button></div>
+          </form>`;
+        const f = document.getElementById('f');
+        f.oninput = () => localStorage.setItem(DRAFT, JSON.stringify(collect(f)));
+        f.onsubmit = (e) => {
+          e.preventDefault();
+          const miss = missing(f);
+          if (miss.length) return alert('À compléter : ' + miss.join(', '));
+          const data = collect(f);
+          localStorage.setItem(DRAFT, JSON.stringify(data));
+          showSend(data);
+        };
+      }
+
+      function showSend(data) {
+        const code = encodePayload({ k: 'evalq-pfmp', p: req.p, n: req.n, ...data, at: new Date().toISOString() });
+        const link = `${base}#/pfmp-import/${code}`;
+        const subject = `Fiche PFMP – ${req.n}`;
+        const body = `Bonjour,\n\nVoici ma fiche PFMP (${data.company.name}).\nLien à ouvrir dans EvalQ :\n${link}\n\n${req.n}`;
+        main.innerHTML = `
+          <div class="card stack">
+            <h1>Fiche prête ✔</h1>
+            <p>Envoyez-la maintenant à votre professeur :</p>
+            ${req.t ? `<a class="btn primary" href="mailto:${encodeURIComponent(req.t)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}">Envoyer par e-mail à mon professeur</a>` : ''}
+            ${navigator.share ? `<button class="btn ${req.t ? '' : 'primary'}" id="share">Envoyer (messagerie, ENT…)</button>` : ''}
+            <button class="btn" id="copy">Copier le lien</button>
+            <details><summary class="muted small">Afficher le lien</summary><p class="small" style="word-break:break-all">${esc(link)}</p></details>
+            <button class="btn ghost" id="edit">Modifier ma fiche</button>
+          </div>`;
+        document.getElementById('copy').onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(link);
+            alert('Lien copié. Collez-le dans un message à votre professeur.');
+          } catch {
+            prompt('Copiez ce lien :', link);
+          }
+        };
+        document.getElementById('share')?.addEventListener('click', () => navigator.share({ title: subject, text: body }).catch(() => {}));
+        document.getElementById('edit').onclick = showForm;
+      }
+
+      showForm();
+    </script>
+  </body>
+</html>

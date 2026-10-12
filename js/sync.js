@@ -13,6 +13,8 @@ import {
   dataSig,
   persistNow,
 } from './store.js';
+import { mediaRefs } from './pfmp.js';
+import * as media from './media.js';
 
 const SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const FILE_NAME = 'EvalQ-donnees.json';
@@ -195,9 +197,9 @@ async function create(blob) {
   return createIn(blob, null);
 }
 
-async function createIn(blob, parents) {
+async function createIn(blob, parents, name = FILE_NAME, description = 'Données EvalQ (chiffrées avec votre code)') {
   const b = 'evalq' + Math.random().toString(36).slice(2);
-  const meta = { name: FILE_NAME, mimeType: 'application/json', description: 'Données EvalQ (chiffrées avec votre code)' };
+  const meta = { name, mimeType: 'application/json', description };
   if (parents) meta.parents = parents;
   const body =
     `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n` +
@@ -256,6 +258,7 @@ async function run() {
   if (!id) {
     info.fileId = await create(await encryptForRemote());
     info.linked = true;
+    await syncMedia();
     return done();
   }
   const blob = await download(id);
@@ -272,7 +275,61 @@ async function run() {
   if (dataSig(merged) !== dataSig(remote)) await update(id, await encryptForRemote());
   info.fileId = id;
   info.linked = true;
+  await syncMedia();
   done();
+}
+
+// ---------- Images (signatures, cachets) : un fichier chiffré par image ----------
+
+const mediaName = (id) => `EvalQ-image-${id}.json`;
+
+async function findByName(name, mimeType) {
+  const q = encodeURIComponent(`name='${name}' and trashed=false${mimeType ? ` and mimeType='${mimeType}'` : ''}`);
+  const r = await api(`${API}/files?q=${q}&spaces=drive&fields=files(id)`);
+  return (await r.json()).files?.[0]?.id || null;
+}
+
+/** Dossier « EvalQ-images » (créé par l'application, dans le dossier choisi si possible). */
+async function mediaFolder() {
+  if (info.mediaFolderId) return info.mediaFolderId;
+  const FOLDER = 'application/vnd.google-apps.folder';
+  let id = await findByName('EvalQ-images', FOLDER);
+  if (!id) {
+    const body = (parents) => JSON.stringify({ name: 'EvalQ-images', mimeType: FOLDER, ...(parents ? { parents } : {}) });
+    const mk = (parents) =>
+      api(`${API}/files?fields=id`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body(parents) }).then((r) => r.json());
+    try {
+      id = (await mk(folderId() ? [folderId()] : null)).id;
+    } catch (e) {
+      if (e instanceof AuthError) throw e;
+      id = (await mk(null)).id;
+    }
+  }
+  info.mediaFolderId = id;
+  saveInfo();
+  return id;
+}
+
+async function syncMedia() {
+  info.mediaUp ||= {};
+  let received = false;
+  for (const ref of mediaRefs()) {
+    const local = await media.getRaw(ref.id);
+    if (local) {
+      if (info.mediaUp[ref.id]) continue;
+      if (!(await findByName(mediaName(ref.id)))) {
+        await createIn(local, [await mediaFolder()], mediaName(ref.id), 'Image EvalQ (chiffrée)');
+      }
+    } else {
+      const fid = await findByName(mediaName(ref.id));
+      if (!fid) continue;
+      await media.putRaw(ref.id, await download(fid));
+      received = true;
+    }
+    info.mediaUp[ref.id] = true;
+    saveInfo();
+  }
+  if (received) hooks.onChanged();
 }
 
 function done() {
