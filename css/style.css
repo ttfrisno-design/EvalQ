@@ -1619,3 +1619,27 @@ body.student-page {
 .tabbar a {
   font-size: 0.7rem;
 }
+.sync-error {
+  color: #b45309;
+  font-weight: 600;
+  margin: 0;
+}
+.sync-banner {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 10px 16px;
+  background: #fef3c7;
+  color: #92400e;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-align: center;
+  cursor: pointer;
+  position: sticky;
+  top: calc(57px + env(safe-area-inset-top));
+  z-index: 19;
+}
+.sync-banner[hidden] {
+  display: none;
+}

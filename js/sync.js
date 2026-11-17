@@ -26,7 +26,7 @@ const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 class AuthError extends Error {}
 
 let info = readJSON(localStorage, INFO_KEY) || {};
-let tok = readJSON(sessionStorage, TOKEN_KEY) || {};
+let tok = readJSON(localStorage, TOKEN_KEY) || {};
 let status = 'off';
 let lastError = '';
 let running = null;
@@ -68,6 +68,8 @@ const parseFolderId = (v) => (String(v).match(/folders\/([\w-]+)/)?.[1] || Strin
 /** Message d'information sur l'emplacement du fichier (ou ''). */
 export const placementNote = () => info.placementNote || '';
 export const isEnabled = () => !!info.enabled;
+/** Lien vers le fichier de données dans Google Drive (une fois créé). */
+export const fileUrl = () => (info.fileId ? `https://drive.google.com/file/d/${info.fileId}/view` : '');
 const hasToken = () => !!tok.access && Date.now() < tok.exp;
 
 export function getStatus() {
@@ -106,13 +108,17 @@ export async function connect() {
       scope: SCOPE,
       hint: info.email || undefined,
       callback: (r) => {
-        if (r.error) return reject(new Error(r.error_description || r.error));
+        if (r.error) return reject(new Error(oauthMessage(r.error, r.error_description)));
+        if (google.accounts.oauth2.hasGrantedAllScopes && !google.accounts.oauth2.hasGrantedAllScopes(r, SCOPE)) {
+          return reject(
+            new Error('Google n’a pas donné l’accès à Drive : recommencez et cochez la case autorisant EvalQ à gérer ses fichiers Google Drive.'),
+          );
+        }
         tok = { access: r.access_token, exp: Date.now() + (Number(r.expires_in) - 60) * 1000 };
-        sessionStorage.setItem(TOKEN_KEY, JSON.stringify(tok));
+        localStorage.setItem(TOKEN_KEY, JSON.stringify(tok));
         resolve();
       },
-      error_callback: (e) =>
-        reject(new Error(e?.type === 'popup_closed' ? 'Fenêtre Google fermée' : e?.message || 'Connexion Google impossible')),
+      error_callback: (e) => reject(new Error(oauthMessage(e?.type, e?.message))),
     });
     client.requestAccessToken({ prompt: info.email ? '' : 'consent' });
   });
@@ -126,7 +132,42 @@ export async function connect() {
     /* facultatif */
   }
   setStatus('idle');
-  return sync();
+  await sync();
+  // Une erreur de synchronisation ne doit pas passer inaperçue juste après la connexion.
+  if (status === 'error') throw new Error('Connexion Google réussie, mais la synchronisation a échoué : ' + lastError);
+}
+
+/** Messages compréhensibles pour les erreurs de connexion Google. */
+function oauthMessage(code, detail) {
+  const m = {
+    popup_closed: 'La fenêtre Google a été fermée avant la fin de la connexion.',
+    popup_failed_to_open:
+      'La fenêtre de connexion Google n’a pas pu s’ouvrir. Autorisez les fenêtres surgissantes, ou sur iPad/iPhone ouvrez EvalQ dans Safari pour vous connecter.',
+    access_denied:
+      'Google a refusé l’accès. Vérifiez dans Google Cloud (Audience) que votre adresse Gmail est bien « utilisateur test », puis réessayez.',
+    invalid_client: 'Identifiant client Google invalide (projet Google Cloud supprimé ou mal recopié).',
+    unauthorized_client: 'Ce client Google n’autorise pas cette adresse : vérifiez les « Origines JavaScript autorisées ».',
+  };
+  return m[code] || `Connexion Google impossible (${code || 'erreur inconnue'}${detail ? ' : ' + detail : ''}).`;
+}
+
+/** Messages compréhensibles pour les erreurs de l'API Drive. */
+async function driveMessage(r) {
+  let reason = '';
+  let msg = '';
+  try {
+    const j = await r.json();
+    reason = j.error?.errors?.[0]?.reason || j.error?.details?.[0]?.reason || j.error?.status || '';
+    msg = j.error?.message || '';
+  } catch {
+    /* corps illisible */
+  }
+  if (/accessNotConfigured|SERVICE_DISABLED/i.test(reason + msg))
+    return 'L’API Google Drive n’est pas activée dans votre projet Google Cloud (API et services → Bibliothèque → Google Drive API → Activer).';
+  if (/insufficient|SCOPE/i.test(reason))
+    return 'Autorisation Drive insuffisante : déconnectez puis reconnectez Google Drive en cochant l’accès aux fichiers.';
+  if (/rateLimit|userRateLimit|quota/i.test(reason)) return 'Google Drive est momentanément saturé : réessayez dans une minute.';
+  return `Google Drive : erreur ${r.status}${msg ? ' – ' + msg : ''}`;
 }
 
 export function disconnect() {
@@ -136,7 +177,7 @@ export function disconnect() {
     /* ignoré */
   }
   tok = {};
-  sessionStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(TOKEN_KEY);
   info = { clientId: info.clientId };
   saveInfo();
   setStatus('off');
@@ -149,15 +190,15 @@ async function api(url, opts = {}) {
   if (r.status === 401 || r.status === 403) {
     if (r.status === 401) {
       tok = {};
-      sessionStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(TOKEN_KEY);
       throw new AuthError('Session Google expirée');
     }
-    const e = new Error('Accès Google Drive refusé (403)');
+    const e = new Error(await driveMessage(r));
     e.status = 403;
     throw e;
   }
   if (!r.ok) {
-    const e = new Error(`Google Drive : erreur ${r.status}`);
+    const e = new Error(await driveMessage(r));
     e.status = r.status;
     throw e;
   }

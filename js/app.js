@@ -1113,7 +1113,10 @@ function syncSectionHTML() {
         ? `<p><b>Étape unique :</b> saisissez l’identifiant client Google (voir le guide ci-dessous).</p>`
         : sync.isEnabled()
           ? `<p class="status-line">${esc(st.email || 'Compte Google connecté')} · <span id="syncStatus"></span></p>
-             <p class="muted small">Dernière synchronisation : ${esc(last)}</p>
+             <p class="muted small">Dernière synchronisation : ${esc(last)}
+               ${sync.fileUrl() ? ` · <a href="${esc(sync.fileUrl())}" target="_blank" rel="noopener">voir le fichier dans Drive</a>` : ''}</p>
+             ${st.status === 'error' ? `<p class="small sync-error">⚠ ${esc(st.error)}</p>` : ''}
+             ${st.status === 'reconnect' ? `<p class="small sync-error">Connexion Google expirée : touchez « Se reconnecter » pour reprendre la synchronisation.</p>` : ''}
              ${sync.placementNote() ? `<p class="small">${esc(sync.placementNote())}</p>` : ''}
              <div class="row gap-s wrap">
                ${st.status === 'reconnect' ? `<button class="btn primary" data-act="connect">Se reconnecter</button>` : `<button class="btn primary" data-act="syncNow">Synchroniser maintenant</button>`}
@@ -1324,6 +1327,9 @@ function viewSettings() {
     }
     if (act === 'syncNow') {
       await sync.sync();
+      const st = sync.getStatus();
+      if (st.status === 'error') alert('La synchronisation a échoué :\n' + st.error);
+      else if (st.status === 'ok') toast('Synchronisé');
       return render();
     }
     if (act === 'disconnect') {
@@ -1602,6 +1608,17 @@ function renderSyncBadge() {
   b.setAttribute('aria-label', label);
   const s = $('#syncStatus');
   if (s) s.textContent = label;
+  const banner = $('#syncBanner');
+  if (banner) {
+    const show = status === 'reconnect' || status === 'error' || (status === 'off' && !!sync.clientId());
+    banner.hidden = !show;
+    banner.textContent =
+      status === 'off'
+        ? '☁ Synchronisation Google Drive non activée sur cet appareil – toucher pour l’activer'
+        : status === 'reconnect'
+        ? '☁ Synchronisation Google Drive en pause – toucher ici pour se reconnecter'
+        : `⚠ Synchronisation impossible : ${error || 'erreur'} – toucher pour réessayer`;
+  }
 }
 
 async function syncButton() {
@@ -1609,7 +1626,11 @@ async function syncButton() {
   if (status === 'off') return go('#/reglages?sync');
   try {
     if (status === 'reconnect') await sync.connect();
-    else await sync.sync();
+    else {
+      await sync.sync();
+      const st = sync.getStatus();
+      if (st.status === 'error') alert('La synchronisation a échoué :\n' + st.error);
+    }
   } catch (e) {
     alert(e.message);
   }
@@ -1683,6 +1704,7 @@ async function init() {
   window.addEventListener('hashchange', render);
   $('#lockBtn').onclick = lockNow;
   $('#syncBtn').onclick = syncButton;
+  $('#syncBanner').onclick = syncButton;
   render();
   requestPersistence();
   setupSync();
